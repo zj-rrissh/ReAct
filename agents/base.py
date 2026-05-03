@@ -3,23 +3,34 @@ from tools.registry import get_all_tools
 from tools.base import Tool
 from agents.reviewer import ReviewerAgent
 from utils.llm_client import LLMClient
+from memory.manager import MemoryManager
 
 class BaseAgent(ABC):
-    def __init__(self, model_name: str, llm_client: LLMClient, tools_registry=None):
+    def __init__(self, model_name: str, llm_client: LLMClient, tools_registry=None,memory_manager=None):
         self.model = model_name
         # 如果传入工具注册表则用它，否则用全局注册表
         tool_classes = (tools_registry or get_all_tools()).values()
         self.tools: list[Tool] = [cls() for cls in tool_classes]# 实例化所有工具
         self.llm = llm_client
+        self.memory = memory_manager or MemoryManager()
         
     def _build_system_prompt(self, task: str) -> str:
         """构造包含工具描述的系统提示"""
         tool_descriptions = "\n".join(
             f"-{tool.name}: {tool.description}" for tool in self.tools
         )
+        
+        relevant_memories = self.memory.retrieve_relevant(task,top_k=3)
+        memory_section = ""
+        if relevant_memories:
+            memory_section = "## 相关历史记忆（可能对你有帮助）\n"
+            for mem in relevant_memories:
+                memory_section += f"- {mem}\n"
         return f"""你是一个严格遵循 ReAct 模式的智能助理。可用工具：
 
 {tool_descriptions}
+
+{memory_section}
 
 规则：
 1. 每次只输出一个 Action。
@@ -42,13 +53,16 @@ Final Answer: 最终答案
         """从模型输出中提取所有 Action-Input 对（支持一次输出多个 Action）"""
         import re
         actions = re.findall(r"Action:\s*(\S+)", text)
-        inputs = re.findall(r"Action Input:\s*(.+?)(?:\n|$)", text)
+        inputs = re.findall(r"Action Input:\s*(.+?)(?=\nAction:|\nFinal Answer:|\Z)", text, re.DOTALL)
         return list(zip(actions, inputs))
     
     def run(self, task: str, max_steps: int = 20) -> str:
         """执行 ReAct 循环"""
         prompt = self._build_system_prompt(task)
         context = prompt
+        self.current_task = task
+        if not hasattr(self, 'original_task'):
+            self.original_task = task
         
         for step in range(max_steps):
             #  1. 调用 LLM
@@ -70,6 +84,12 @@ Final Answer: 最终答案
                             observation = tool.execute(action_input) # type: ignore
                         except Exception as e:
                             observation = f"工具执行出错: {str(e)}"
+                        self.memory.add_from_tool_result(
+                            task=self.original_task,  # 需保存原始任务描述，可在 __init__ 中记录
+                            tool_name=action_name,
+                            input=action_input,
+                            output=observation
+                        )
                     print(f"[Agent] 工具返回: {observation}")
                     # 4. 将观察结果加入上下文
                     context += f"\nObservation: {observation}\n"
@@ -106,7 +126,7 @@ Final Answer: 最终答案
 
             if passed:
                 return answer
-
+            self.memory.add_reflection_insight(task=task,feedback=feedback)
             if attempt < max_retries:
                 print(f"[Reflection] 准备根据反馈进行第 {attempt+2} 次尝试...\n")
                 current_task = (

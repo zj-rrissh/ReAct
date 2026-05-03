@@ -6,6 +6,7 @@
 
 - **ReAct 循环**：Thought → Action → Observation 标准推理链路
 - **自我反思**：Actor 执行 + Reviewer 评审 + 失败自动修正
+- **长期记忆**：工具经验积累、反思教训记录、关键词检索、自动压缩
 - **双后端**：DeepSeek API / Ollama 本地模型，一键切换
 - **7 个内置工具**：计算器、网页搜索、维基百科、文件读写、天气
 - **插件式工具架构**：`@register_tool` 装饰器零侵入注册新工具
@@ -102,10 +103,13 @@ ReAct/
 │   └── weather.py            # 天气（模拟）
 ├── utils/
 │   └── llm_client.py         # LLM 客户端适配器
-├── memory/                   # 记忆模块（待实现）
-│   ├── short_term.py
-│   ├── mid_term.py
-│   └── long_term.py
+├── memory/                   # 记忆模块
+│   ├── store.py              # MemoryStore 抽象基类 + JSON 持久化
+│   ├── manager.py            # MemoryManager 写入/检索/压缩
+│   ├── memories.json         # 长期记忆数据文件
+│   ├── short_term.py         # 短期记忆（占位，逻辑在 BaseAgent 中）
+│   ├── mid_term.py           # 中期记忆（占位，会话摘要待实现）
+│   └── long_term.py          # 长期记忆（占位，逻辑在 store.py 中）
 ├── workspace/                # 文件操作安全沙箱
 ├── docs/                     # 阶段完成报告
 └── README.md
@@ -161,6 +165,6 @@ class MyTool(Tool):
 | 阶段 0 | 基础设施（Tool 基类、注册表、Agent 基类） | ✅ 完成 |
 | 阶段 1 | 更多工具（web_search、wikipedia、file_read/write） | ✅ 完成 |
 | 阶段 2 | 自我反思（Reviewer、反思循环、双后端） | ✅ 完成 |
-| 阶段 3 | 长记忆（短期/中期/长期记忆） | 📋 计划中 |
+| 阶段 3 | 长记忆（JSON 持久化、检索、压缩） | ✅ 完成 |
 | 阶段 4 | 多模型协作（Actor/Critic/Planner 协作） | 📋 计划中 |
 | 阶段 5 | 规划能力（任务分解、进度跟踪、动态调整） | 📋 计划中 |

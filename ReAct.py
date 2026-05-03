@@ -124,6 +124,8 @@ def main():
         run_single_task(agent, args)
     else:
         run_interactive(agent, args)
+        
+    agent.memory.compress(max_items=50)
 
 
 def run_single_task(agent: BaseAgent, args):
@@ -206,3 +208,4 @@ def handle_command(cmd: str, reflect_on: bool) -> bool | None:
 
 if __name__ == "__main__":
     main()
+    
