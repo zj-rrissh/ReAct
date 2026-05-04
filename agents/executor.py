@@ -3,12 +3,25 @@ from agents.message import Message
 from utils.llm_client import LLMClient
 
 EXECUTOR_SYSTEM_PROMPT = """你是一个执行专家，负责完成一个具体的子任务。你可以使用提供的工具。
+
+重要规则：
+1. 你必须使用工具来完成任务，不能仅仅描述或假装已完成。
+2. 创建文件必须使用 file_write 工具，不能只在回答中说"已创建"。
+3. 每次只输出一个 Action，等待 Observation 后再决定下一步。
+4. 只有所有操作都完成且通过 Observation 确认成功后，才能输出 Final Answer。
+
 {memory_section}
-工具列表：
+可用工具：
 {tool_descriptions}
-回答格式：
-若需工具：Thought, Action, Action Input
-若完成：Final Answer
+
+输出格式（必须严格遵循，每行一个字段）：
+Thought: 你的思考过程
+Action: 工具名称
+Action Input: 工具参数
+
+或（仅当任务已通过工具执行完成时）：
+Thought: 任务已完成
+Final Answer: 最终结果摘要
 """
 
 class ExecutorAgent(BaseAgent):

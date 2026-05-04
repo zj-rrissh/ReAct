@@ -15,7 +15,7 @@ Feedback: 若 FAIL，给出具体修改建议，否则输出 "无"
 
 class CriticAgent(BaseAgent):
     def __init__(self, model_name: str, llm_client: LLMClient, memory_manager=None, name: str = "critic"):
-        super().__init__(model_name, llm_client, memory_manager, name=name)
+        super().__init__(model_name, llm_client, memory_manager=memory_manager, name=name)
         
     def evaluate(self, task: str, result: str) -> tuple[bool, str]:
         prompt = CRITIC_SYSTEM_PROMPT.format(task=task,result=result)

@@ -75,6 +75,16 @@ def create_client(provider: str, model_name: str) -> LLMClient:
         raise ValueError(f"未知的 provider: {provider}，可选: ollama, deepseek")
 
 
+def create_orchestrator(model_name: str, llm_client: LLMClient):
+    """创建多 Agent 编排组件（Planner + Executor + Critic + Orchestrator）。"""
+    memory_mgr = MemoryManager()
+    planner = PlannerAgent(model_name=model_name, llm_client=llm_client, memory_manager=memory_mgr)
+    executor = ExecutorAgent(model_name=model_name, llm_client=llm_client, memory_manager=memory_mgr)
+    critic = CriticAgent(model_name=model_name, llm_client=llm_client, memory_manager=memory_mgr)
+    orch = Orchestrator(planner, executor, critic, memory_mgr)
+    return orch, memory_mgr
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="ReAct Agent - 基于 Reasoning + Acting 模式的智能助理"
@@ -130,11 +140,7 @@ def main():
     client = create_client(args.provider, args.model)
 
     if args.orchestrate:
-        memory_mgr = MemoryManager()
-        planner = PlannerAgent(model_name=args.model, llm_client=client, memory_manager=memory_mgr)
-        executor = ExecutorAgent(model_name=args.model, llm_client=client, memory_manager=memory_mgr)
-        critic = CriticAgent(model_name=args.model, llm_client=client, memory_manager=memory_mgr)
-        orchestrator = Orchestrator(planner, executor, critic, memory_mgr)
+        orchestrator, memory_mgr = create_orchestrator(args.model, client)
         agent = BaseAgent(model_name=args.model, llm_client=client, memory_manager=memory_mgr, name="main_agent")
     else:
         agent = BaseAgent(model_name=args.model, llm_client=client, name="main_agent")
@@ -143,7 +149,7 @@ def main():
     if args.task:
         run_single_task(agent, args, orchestrator)
     else:
-        run_interactive(agent, args, orchestrator)
+        run_interactive(agent, args, client, orchestrator)
 
     agent.memory.compress(max_items=50)
 
@@ -164,16 +170,31 @@ def run_single_task(agent: BaseAgent, args, orchestrator=None):
     print(result)
 
 
-def run_interactive(agent: BaseAgent, args, orchestrator=None):
-    """交互式对话模式。"""
-    reflect_on = args.reflect
-    orchestrate_on = orchestrator is not None
-    mode_label = "编排" if orchestrate_on else ("反思" if reflect_on else "标准")
+def run_interactive(agent: BaseAgent, args, llm_client: LLMClient, orchestrator=None):
+    """交互式对话模式。支持 /orch 动态切换编排模式。"""
+    state = {
+        "reflect_on": args.reflect,
+        "orchestrate_on": orchestrator is not None,
+        "orchestrator": orchestrator,
+        "llm_client": llm_client,
+        "model_name": args.model,
+        "agent": agent,
+        "max_retries": args.max_retries,
+        "max_steps": args.max_steps,
+    }
+
+    def mode_label():
+        if state["orchestrate_on"]:
+            return "编排"
+        elif state["reflect_on"]:
+            return "反思"
+        return "标准"
+
     print("[ReAct] 进入交互模式，输入 /help 查看可用命令。")
-    print(f"[ReAct] 模式: {mode_label}")
+    print(f"[ReAct] 模式: {mode_label()}")
 
     while True:
-        prompt = f"\n[{mode_label}] > "
+        prompt = f"\n[{mode_label()}] > "
         try:
             task = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
@@ -188,49 +209,71 @@ def run_interactive(agent: BaseAgent, args, orchestrator=None):
 
         # 内置命令
         if task.startswith("/"):
-            handled = handle_command(task, reflect_on)
-            if handled is not None:
-                reflect_on = handled
+            handle_command(task, state)
             continue
 
-        if orchestrate_on:
-            result = orchestrator.run_sequential(task, max_retries=args.max_retries)
-        elif reflect_on:
+        if state["orchestrate_on"]:
+            result = state["orchestrator"].run_sequential(task, max_retries=state["max_retries"])
+        elif state["reflect_on"]:
             print("[ReAct] 反思模式执行中...")
-            result = agent.run_with_reflection(task, max_retries=args.max_retries, max_steps=args.max_steps)
+            result = state["agent"].run_with_reflection(task, max_retries=state["max_retries"], max_steps=state["max_steps"])
         else:
-            result = agent.run(task, max_steps=args.max_steps)
+            result = state["agent"].run(task, max_steps=state["max_steps"])
 
         print(f"\n结果: {result}")
 
 
-def handle_command(cmd: str, reflect_on: bool) -> bool | None:
-    """处理内置命令，返回新的 reflect_on 值或 None（无需更新）。"""
+def handle_command(cmd: str, state: dict):
+    """处理内置命令，直接修改 state dict。"""
     parts = cmd.lower().split()
     cmd_name = parts[0]
 
     if cmd_name in ("/reflect", "/r"):
+        if state["orchestrate_on"]:
+            print("[ReAct] 编排模式已开启，请先关闭编排模式（/orch off）再切换反思模式。")
+            return
         if len(parts) > 1 and parts[1] in ("on", "1", "true", "yes"):
-            reflect_on = True
+            state["reflect_on"] = True
         elif len(parts) > 1 and parts[1] in ("off", "0", "false", "no"):
-            reflect_on = False
+            state["reflect_on"] = False
         else:
-            reflect_on = not reflect_on
-        print(f"[ReAct] 反思模式已切换为: {'🟢 开启' if reflect_on else '⚫ 关闭'}")
-        return reflect_on
+            state["reflect_on"] = not state["reflect_on"]
+        print(f"[ReAct] 反思模式已: {'🟢 开启' if state['reflect_on'] else '⚫ 关闭'}")
 
-    if cmd_name in ("/help", "/h", "/?"):
+    elif cmd_name in ("/orch", "/orchestrate"):
+        if len(parts) > 1 and parts[1] in ("on", "1", "true", "yes"):
+            if not state["orchestrate_on"]:
+                state["orchestrator"], _ = create_orchestrator(state["model_name"], state["llm_client"])
+                state["orchestrate_on"] = True
+        elif len(parts) > 1 and parts[1] in ("off", "0", "false", "no"):
+            if state["orchestrate_on"]:
+                state["orchestrator"] = None
+                state["orchestrate_on"] = False
+        else:
+            # 无参数时切换
+            if state["orchestrate_on"]:
+                state["orchestrator"] = None
+                state["orchestrate_on"] = False
+            else:
+                state["orchestrator"], _ = create_orchestrator(state["model_name"], state["llm_client"])
+                state["orchestrate_on"] = True
+        if state["orchestrate_on"]:
+            state["reflect_on"] = False
+        print(f"[ReAct] 编排模式已: {'🟢 开启' if state['orchestrate_on'] else '⚫ 关闭'}")
+
+    elif cmd_name in ("/help", "/h", "/?"):
         print("""
 可用命令:
-  /reflect, /r       切换反思模式（开/关）
-  /reflect on/off    直接设置反思模式
-  /help, /h          显示此帮助
-  exit, quit         退出程序
+  /orch, /orchestrate       切换多 Agent 编排模式
+  /orch on/off              直接设置编排模式
+  /reflect, /r              切换反思模式（开/关）
+  /reflect on/off           直接设置反思模式
+  /help, /h                 显示此帮助
+  exit, quit                退出程序
         """.strip())
-        return None
 
-    print(f"未知命令: {cmd_name}，输入 /help 查看可用命令。")
-    return None
+    else:
+        print(f"未知命令: {cmd_name}，输入 /help 查看可用命令。")
 
 
 if __name__ == "__main__":
