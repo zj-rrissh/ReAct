@@ -1,13 +1,15 @@
 from abc import ABC
 from tools.registry import get_all_tools
 from tools.base import Tool
+from agents.message import Message
 from agents.reviewer import ReviewerAgent
 from utils.llm_client import LLMClient
 from memory.manager import MemoryManager
 
 class BaseAgent(ABC):
-    def __init__(self, model_name: str, llm_client: LLMClient, tools_registry=None,memory_manager=None):
+    def __init__(self, model_name: str, llm_client: LLMClient, tools_registry=None, memory_manager=None, name: str = "base_agent"):
         self.model = model_name
+        self.name = name
         # 如果传入工具注册表则用它，否则用全局注册表
         tool_classes = (tools_registry or get_all_tools()).values()
         self.tools: list[Tool] = [cls() for cls in tool_classes]# 实例化所有工具
@@ -116,8 +118,16 @@ Final Answer: 最终答案
             # 执行任务
             answer = self.run(current_task, max_steps=max_steps)
 
-            # 评审
-            passed, feedback = reviewer.review(current_task, answer)
+            # 评审（通过 Message 与 Reviewer 通信）
+            review_msg = Message(
+                type="task",
+                sender=self.name,
+                receiver=reviewer.name,
+                payload={"task": current_task, "answer": answer},
+            )
+            review_response = reviewer.handle_message(review_msg)
+            passed = review_response.payload["passed"]
+            feedback = review_response.payload["feedback"]
 
             print(f"\n{'─'*60}")
             print(f"[Reviewer] 第 {attempt+1} 次评审结果: {'✅ PASS' if passed else '❌ FAIL'}")
@@ -126,7 +136,7 @@ Final Answer: 最终答案
 
             if passed:
                 return answer
-            self.memory.add_reflection_insight(task=task,feedback=feedback)
+            self.memory.add_reflection_insight(task=task, feedback=feedback)
             if attempt < max_retries:
                 print(f"[Reflection] 准备根据反馈进行第 {attempt+2} 次尝试...\n")
                 current_task = (

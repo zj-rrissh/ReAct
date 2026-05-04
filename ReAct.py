@@ -12,6 +12,11 @@ load_dotenv()
 
 from utils.llm_client import LLMClient
 from agents.base import BaseAgent
+from agents.planner import PlannerAgent
+from agents.executor import ExecutorAgent
+from agents.critic import CriticAgent
+from agents.orchestrator import Orchestrator
+from memory.manager import MemoryManager
 
 # 导入所有工具以触发 @register_tool 自动注册
 import tools.calculator      # noqa: F401
@@ -110,6 +115,11 @@ def main():
         default=20,
         help="单次任务的最大执行步数（默认: 20）"
     )
+    parser.add_argument(
+        "--orchestrate",
+        action="store_true",
+        help="启用多 Agent 编排模式（Planner + Executor + Critic 协作）"
+    )
     args = parser.parse_args()
 
     # 根据 provider 自动选择默认模型
@@ -118,19 +128,32 @@ def main():
 
     print(f"[ReAct] 后端: {args.provider}, 模型: {args.model}")
     client = create_client(args.provider, args.model)
-    agent = BaseAgent(model_name=args.model, llm_client=client)
+
+    if args.orchestrate:
+        memory_mgr = MemoryManager()
+        planner = PlannerAgent(model_name=args.model, llm_client=client, memory_manager=memory_mgr)
+        executor = ExecutorAgent(model_name=args.model, llm_client=client, memory_manager=memory_mgr)
+        critic = CriticAgent(model_name=args.model, llm_client=client, memory_manager=memory_mgr)
+        orchestrator = Orchestrator(planner, executor, critic, memory_mgr)
+        agent = BaseAgent(model_name=args.model, llm_client=client, memory_manager=memory_mgr, name="main_agent")
+    else:
+        agent = BaseAgent(model_name=args.model, llm_client=client, name="main_agent")
+        orchestrator = None
 
     if args.task:
-        run_single_task(agent, args)
+        run_single_task(agent, args, orchestrator)
     else:
-        run_interactive(agent, args)
-        
+        run_interactive(agent, args, orchestrator)
+
     agent.memory.compress(max_items=50)
 
 
-def run_single_task(agent: BaseAgent, args):
+def run_single_task(agent: BaseAgent, args, orchestrator=None):
     """执行单次任务。"""
-    if args.reflect:
+    if orchestrator:
+        print("[ReAct] 多 Agent 编排模式已启用")
+        result = orchestrator.run_sequential(args.task, max_retries=args.max_retries)
+    elif args.reflect:
         print(f"[ReAct] 自我反思模式已启用，最大重试: {args.max_retries}")
         result = agent.run_with_reflection(args.task, max_retries=args.max_retries, max_steps=args.max_steps)
     else:
@@ -141,14 +164,16 @@ def run_single_task(agent: BaseAgent, args):
     print(result)
 
 
-def run_interactive(agent: BaseAgent, args):
+def run_interactive(agent: BaseAgent, args, orchestrator=None):
     """交互式对话模式。"""
     reflect_on = args.reflect
+    orchestrate_on = orchestrator is not None
+    mode_label = "编排" if orchestrate_on else ("反思" if reflect_on else "标准")
     print("[ReAct] 进入交互模式，输入 /help 查看可用命令。")
-    print(f"[ReAct] 反思模式: {'🟢 开启' if reflect_on else '⚫ 关闭'}")
+    print(f"[ReAct] 模式: {mode_label}")
 
     while True:
-        prompt = "\n[反思] > " if reflect_on else "\n> "
+        prompt = f"\n[{mode_label}] > "
         try:
             task = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
@@ -168,7 +193,9 @@ def run_interactive(agent: BaseAgent, args):
                 reflect_on = handled
             continue
 
-        if reflect_on:
+        if orchestrate_on:
+            result = orchestrator.run_sequential(task, max_retries=args.max_retries)
+        elif reflect_on:
             print("[ReAct] 反思模式执行中...")
             result = agent.run_with_reflection(task, max_retries=args.max_retries, max_steps=args.max_steps)
         else:

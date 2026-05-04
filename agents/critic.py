@@ -1,6 +1,7 @@
 from click import prompt
 
 from agents.base import BaseAgent
+from agents.message import Message
 from utils.llm_client import LLMClient
 
 CRITIC_SYSTEM_PROMPT = """你是一个严格的评审专家。请评估以下子任务的执行结果是否符合要求。
@@ -13,8 +14,8 @@ Feedback: 若 FAIL，给出具体修改建议，否则输出 "无"
 """
 
 class CriticAgent(BaseAgent):
-    def __init__(self, model_name: str, llm_client: LLMClient, memory_manager=None):
-        super().__init__(model_name, llm_client, memory_manager)
+    def __init__(self, model_name: str, llm_client: LLMClient, memory_manager=None, name: str = "critic"):
+        super().__init__(model_name, llm_client, memory_manager, name=name)
         
     def evaluate(self, task: str, result: str) -> tuple[bool, str]:
         prompt = CRITIC_SYSTEM_PROMPT.format(task=task,result=result)
@@ -25,3 +26,7 @@ class CriticAgent(BaseAgent):
         else:
             feedback = response
         return decision == "PASS", feedback
+
+    def handle_message(self, msg: Message) -> Message:
+        passed, feedback = self.evaluate(msg.payload["task"], msg.payload["result"])
+        return msg.create_reply({"passed": passed, "feedback": feedback}, "feedback")

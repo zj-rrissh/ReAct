@@ -1,6 +1,7 @@
 from click import prompt
 
 from agents.base import BaseAgent
+from agents.message import Message
 from utils.llm_client import LLMClient
 
 PLANNER_SYSTEM_PROMPT = """你是一个任务规划专家。你的任务是将用户提出的复杂请求分解为一系列可独立执行的子任务。
@@ -18,8 +19,8 @@ PLANNER_SYSTEM_PROMPT = """你是一个任务规划专家。你的任务是将�
 """
 
 class PlannerAgent(BaseAgent):
-    def __init__(self, model_name: str, llm_client: LLMClient, memory_manager=None):
-        super().__init__(model_name, llm_client, tools_registry={}, memory_manager=memory_manager)
+    def __init__(self, model_name: str, llm_client: LLMClient, memory_manager=None, name: str = "planner"):
+        super().__init__(model_name, llm_client, tools_registry={}, memory_manager=memory_manager, name=name)
         
         self.system_prompt = PLANNER_SYSTEM_PROMPT
         
@@ -37,3 +38,7 @@ class PlannerAgent(BaseAgent):
             return plan
         except Exception:
             return [{"id": "1", "description": task, "depends_on": [], "assigned_to": "executor"}]
+
+    def handle_message(self, msg: Message) -> Message:
+        plan = self.plan(msg.payload)
+        return msg.create_reply(plan, "result")

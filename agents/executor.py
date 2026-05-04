@@ -1,4 +1,5 @@
 from agents.base import BaseAgent
+from agents.message import Message
 from utils.llm_client import LLMClient
 
 EXECUTOR_SYSTEM_PROMPT = """你是一个执行专家，负责完成一个具体的子任务。你可以使用提供的工具。
@@ -11,8 +12,8 @@ EXECUTOR_SYSTEM_PROMPT = """你是一个执行专家，负责完成一个具体�
 """
 
 class ExecutorAgent(BaseAgent):
-    def __init__(self, model_name: str, llm_client: LLMClient, tools_registry=None, memory_manager=None):
-        super().__init__(model_name, llm_client, tools_registry, memory_manager)
+    def __init__(self, model_name: str, llm_client: LLMClient, tools_registry=None, memory_manager=None, name: str = "executor"):
+        super().__init__(model_name, llm_client, tools_registry, memory_manager, name=name)
 
     def _build_system_prompt(self, task: str) -> str:
         tool_descriptions = "\n".join(
@@ -44,3 +45,9 @@ class ExecutorAgent(BaseAgent):
         
         full_task = "\n".join(context_parts)
         return self.run(full_task)
+
+    def handle_message(self, msg: Message) -> Message:
+        subtask = msg.payload["subtask"]
+        previous_results = msg.payload.get("previous_results", {})
+        result = self.execute_subtask(subtask, previous_results)
+        return msg.create_reply(result, "result")

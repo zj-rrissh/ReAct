@@ -1,3 +1,4 @@
+from agents.message import Message
 from utils.llm_client import LLMClient
 
 
@@ -20,9 +21,10 @@ Feedback: <如果 FAIL，请给出清晰、可操作的修改建议；如果 PAS
 请评审："""
 
 class ReviewerAgent:
-    def __init__(self,model_name: str,llm_client: LLMClient):
+    def __init__(self, model_name: str, llm_client: LLMClient, name: str = "reviewer"):
         self.model = model_name
         self.llm = llm_client
+        self.name = name
         
     def review(self,task: str,answer: str) -> tuple[bool, str]:
         """返回（是否通过，反馈信息）"""
@@ -49,5 +51,9 @@ class ReviewerAgent:
         else:
             feedback = response.strip()
         return passed, feedback
+
+    def handle_message(self, msg: Message) -> Message:
+        passed, feedback = self.review(msg.payload["task"], msg.payload["answer"])
+        return msg.create_reply({"passed": passed, "feedback": feedback}, "feedback")
 
     
