@@ -18,6 +18,8 @@ from agents.critic import CriticAgent
 from agents.orchestrator import Orchestrator
 from memory.manager import MemoryManager
 
+from tools.base import set_workspace_dir
+
 # 导入所有工具以触发 @register_tool 自动注册
 import tools.calculator      # noqa: F401
 import tools.search          # noqa: F401
@@ -130,7 +132,16 @@ def main():
         action="store_true",
         help="启用多 Agent 编排模式（Planner + Executor + Critic 协作）"
     )
+    parser.add_argument(
+        "-w", "--workspace",
+        type=str,
+        default="./workspace",
+        help="工作区目录（文件读写工具的根目录，默认: ./workspace）"
+    )
     args = parser.parse_args()
+
+    # 配置工作区目录
+    set_workspace_dir(args.workspace)
 
     # 根据 provider 自动选择默认模型
     if args.model is None:

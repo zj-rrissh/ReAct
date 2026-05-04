@@ -6,11 +6,13 @@
 
 - **ReAct 循环**：Thought → Action → Observation 标准推理链路
 - **自我反思**：Actor 执行 + Reviewer 评审 + 失败自动修正
+- **多 Agent 编排**：Planner 规划 → Executor 执行 → Critic 评审，串行协作
+- **统一消息通信**：`Message` 数据类，规范化 Agent 间通信（sender/receiver/payload）
 - **长期记忆**：工具经验积累、反思教训记录、关键词检索、自动压缩
 - **双后端**：DeepSeek API / Ollama 本地模型，一键切换
 - **7 个内置工具**：计算器、网页搜索、维基百科、文件读写、天气
 - **插件式工具架构**：`@register_tool` 装饰器零侵入注册新工具
-- **两种运行模式**：单次任务 / 交互式对话
+- **三种运行模式**：标准 ReAct / 反思模式 / 多 Agent 编排
 
 ## 快速开始
 
@@ -42,6 +44,9 @@ python ReAct.py -t "找出深度学习的定义并给出一个简单例子"
 # 启用反思模式
 python ReAct.py -t "计算 (15+23)*2 的结果" -r
 
+# 启用多 Agent 编排模式
+python ReAct.py -t "搜索量子计算最新进展，写成报告并保存到文件" --orchestrate
+
 # 交互模式
 python ReAct.py
 ```
@@ -56,13 +61,17 @@ python ReAct.py
 | `-p, --provider` | LLM 后端：`deepseek` 或 `ollama` | `deepseek` |
 | `-m, --model` | 模型名称 | deepseek: `deepseek-chat` / ollama: `llama3:8b` |
 | `-r, --reflect` | 启用自我反思模式 | 关闭 |
-| `--max-retries` | 反思最大重试次数 | 2 |
+| `--orchestrate` | 启用多 Agent 编排模式（Planner + Executor + Critic） | 关闭 |
+| `--max-retries` | 反思/编排最大重试次数 | 2 |
+| `-w, --workspace` | 文件读写工具的工作区目录 | `./workspace` |
 | `--max-steps` | 单次任务最大步数 | 20 |
 
 ### 交互模式命令
 
 | 命令 | 说明 |
 |------|------|
+| `/orch` | 切换多 Agent 编排模式开关 |
+| `/orch on/off` | 直接设置编排模式 |
 | `/reflect` | 切换反思模式开关 |
 | `/reflect on/off` | 直接设置反思模式 |
 | `/help` | 查看帮助 |
@@ -88,17 +97,20 @@ ReAct/
 ├── .gitignore
 ├── agents/
 │   ├── base.py               # Agent 基类：ReAct 循环 + 反思循环
-│   ├── reviewer.py           # Reviewer 评审 Agent
-│   ├── actor.py              # Actor 角色（待分离）
-│   └── planner.py            # Planner 角色（待实现）
+│   ├── message.py            # Message 数据类：统一 Agent 间通信
+│   ├── reviewer.py           # Reviewer 评审 Agent（反思模式用）
+│   ├── planner.py            # Planner 规划 Agent（编排模式用）
+│   ├── executor.py           # Executor 执行 Agent（编排模式用）
+│   ├── critic.py             # Critic 评审 Agent（编排模式用）
+│   └── orchestrator.py       # Orchestrator 编排器：串行协调多 Agent
 ├── tools/
 │   ├── base.py               # Tool 抽象基类
 │   ├── registry.py           # @register_tool 装饰器注册表
 │   ├── calculator.py         # 计算器
 │   ├── web_search.py         # 网页搜索（DuckDuckGo）
 │   ├── wikipedia.py          # 维基百科查询
-│   ├── file_reader.py        # 文件读取（限 ./workspace）
-│   ├── file_writer.py        # 文件写入（限 ./workspace）
+│   ├── file_reader.py        # 文件读取（限工作区目录）
+│   ├── file_writer.py        # 文件写入（限工作区目录）
 │   ├── search.py             # 搜索（模拟）
 │   └── weather.py            # 天气（模拟）
 ├── utils/
@@ -116,6 +128,8 @@ ReAct/
 ```
 
 ## 执行流程
+
+### 标准 ReAct 模式
 
 ```
 用户任务 ──▶ 构建 System Prompt（含工具描述）
@@ -139,6 +153,27 @@ ReAct/
           │  ❌ FAIL → 注入反馈 → 重试
           └─────────────────────┘
 ```
+
+### 多 Agent 编排模式
+
+```
+用户任务 ──▶ Planner 分解任务为子任务列表
+                    │
+                    ▼
+          ┌─────────────────────────────────┐
+          │  Orchestrator 串行协调           │
+          │                                 │
+          │  对每个子任务:                    │
+          │    ├─ Executor 执行子任务         │
+          │    ├─ Critic 评审执行结果          │
+          │    ├─ ✅ PASS → 记录结果, 继续     │
+          │    └─ ❌ FAIL → 注入反馈 → 重试    │
+          │                                 │
+          │  汇总所有子任务结果 → 最终输出      │
+          └─────────────────────────────────┘
+```
+
+所有 Agent 间通信均通过 `Message` 数据类完成（type/sender/receiver/payload）。
 
 ## 添加新工具
 
@@ -165,6 +200,6 @@ class MyTool(Tool):
 | 阶段 0 | 基础设施（Tool 基类、注册表、Agent 基类） | ✅ 完成 |
 | 阶段 1 | 更多工具（web_search、wikipedia、file_read/write） | ✅ 完成 |
 | 阶段 2 | 自我反思（Reviewer、反思循环、双后端） | ✅ 完成 |
-| 阶段 3 | 长记忆（JSON 持久化、检索、压缩） | ✅ 完成 |
-| 阶段 4 | 多模型协作（Actor/Critic/Planner 协作） | 📋 计划中 |
-| 阶段 5 | 规划能力（任务分解、进度跟踪、动态调整） | 📋 计划中 |
+| 阶段 3 | 长期记忆（JSON 持久化、检索、压缩） | ✅ 完成 |
+| 阶段 4 | 多模型协作（Message 通信、Planner/Executor/Critic/Orchestrator） | ✅ 完成 |
+| 阶段 5 | 规划能力增强（任务分解优化、进度跟踪、动态调整、并行执行） | 📋 计划中 |
