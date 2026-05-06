@@ -1,0 +1,22 @@
+{
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "providers": {
+    "deepseek": {
+      "type": "openai_compatible",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "",
+      "api_key_env": "DEEPSEEK_API_KEY"
+    },
+    "ollama": {
+      "type": "ollama",
+      "model": "llama3:8b"
+    },
+    "openai": {
+      "type": "openai_compatible",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "",
+      "api_key_env": "OPENAI_API_KEY"
+    }
+  }
+}
