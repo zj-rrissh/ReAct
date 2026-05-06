@@ -1,6 +1,6 @@
 from tools.registry import register_tool
 from tools.base import Tool
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 
 @register_tool(name="web_search")
 class WebSearchTool(Tool):
