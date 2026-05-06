@@ -76,19 +76,45 @@ def load_config(config_path: str = DEFAULT_CONFIG_PATH) -> dict:
     return config
 
 
-def create_deepseek_client(model_name: str = "deepseek-chat") -> LLMClient:
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+def create_openai_compatible_client(
+    provider_name: str,
+    model_name: str,
+    base_url: str,
+    api_key: str = "",
+    api_key_env: str = "",
+) -> LLMClient:
+    """创建 OpenAI 兼容 API 的 LLM 客户端。
 
-    if not api_key:
+    Args:
+        provider_name: 提供商名称（用于错误提示）
+        model_name: 模型名称
+        base_url: API 地址
+        api_key: config.json 中的 api_key（可为空）
+        api_key_env: 环境变量名
+
+    Returns:
+        LLMClient 实例
+
+    Raises:
+        ValueError: 无法获取 api_key
+    """
+    # 优先级: 环境变量 > config.json
+    resolved_key = ""
+    if api_key_env:
+        resolved_key = os.getenv(api_key_env, "")
+    if not resolved_key and api_key:
+        resolved_key = api_key
+
+    if not resolved_key:
         raise ValueError(
-            "未设置 DEEPSEEK_API_KEY，请在 .env 文件中配置或设置环境变量。\n"
-            "  示例: DEEPSEEK_API_KEY=sk-xxxxxxxx"
+            f"[{provider_name}] 未找到 API 密钥。\n"
+            f"  方式 1: 在 .env 中设置 {api_key_env}=sk-xxx\n"
+            f"  方式 2: 在 config.json 的 providers.{provider_name}.api_key 中填写密钥"
         )
 
     from openai import OpenAI
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    client = OpenAI(api_key=resolved_key, base_url=base_url)
 
     def adapter(model, prompt):
         response = client.chat.completions.create(
@@ -116,7 +142,13 @@ def create_ollama_client(model_name: str = "llama3:8b") -> LLMClient:
 
 def create_client(provider: str, model_name: str) -> LLMClient:
     if provider == "deepseek":
-        return create_deepseek_client(model_name)
+        return create_openai_compatible_client(
+            provider_name="deepseek",
+            model_name=model_name,
+            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+            api_key="",
+            api_key_env="DEEPSEEK_API_KEY",
+        )
     elif provider == "ollama":
         return create_ollama_client(model_name)
     else:

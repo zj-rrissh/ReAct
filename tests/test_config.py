@@ -111,3 +111,57 @@ class TestLoadConfig:
         }))
         with pytest.raises(ValueError, match="unknown"):
             load_config(str(config_path))
+
+
+from ReAct import create_openai_compatible_client, create_ollama_client
+from utils.llm_client import LLMClient
+
+
+class TestCreateOpenAICompatibleClient:
+    def test_creates_llm_client_with_env_api_key(self, monkeypatch):
+        """环境变量有 api_key 时从 env 读取。"""
+        monkeypatch.setenv("TEST_API_KEY", "sk-env-key")
+        client = create_openai_compatible_client(
+            provider_name="test-provider",
+            model_name="gpt-4o",
+            base_url="https://api.test.com",
+            api_key="",
+            api_key_env="TEST_API_KEY",
+        )
+        assert isinstance(client, LLMClient)
+
+    def test_creates_llm_client_with_config_api_key(self, monkeypatch):
+        """环境变量未设置时使用 config 中的 api_key。"""
+        monkeypatch.delenv("TEST_API_KEY", raising=False)
+        client = create_openai_compatible_client(
+            provider_name="test-provider",
+            model_name="gpt-4o",
+            base_url="https://api.test.com",
+            api_key="sk-config-key",
+            api_key_env="TEST_API_KEY",
+        )
+        assert isinstance(client, LLMClient)
+
+    def test_raises_when_no_api_key(self, monkeypatch):
+        """env 和 config 都没有 api_key 时报错。"""
+        monkeypatch.delenv("TEST_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="api_key"):
+            create_openai_compatible_client(
+                provider_name="test-provider",
+                model_name="gpt-4o",
+                base_url="https://api.test.com",
+                api_key="",
+                api_key_env="TEST_API_KEY",
+            )
+
+    def test_env_priority_over_config(self, monkeypatch):
+        """环境变量优先级高于 config 中的 api_key。"""
+        monkeypatch.setenv("PRIORITY_KEY", "sk-from-env")
+        client = create_openai_compatible_client(
+            provider_name="test-provider",
+            model_name="gpt-4o",
+            base_url="https://api.test.com",
+            api_key="sk-from-config",
+            api_key_env="PRIORITY_KEY",
+        )
+        assert isinstance(client, LLMClient)

@@ -9,7 +9,7 @@ import pytest
 # 导入被测函数
 from ReAct import (
     create_client,
-    create_deepseek_client,
+    create_openai_compatible_client,
     create_ollama_client,
     create_orchestrator,
     handle_command,
@@ -21,7 +21,7 @@ from utils.llm_client import LLMClient
 
 class TestCreateClient:
     def test_create_client_deepseek_returns_llm_client(self, set_deepseek_env):
-        with patch("ReAct.create_deepseek_client") as mock_create:
+        with patch("ReAct.create_openai_compatible_client") as mock_create:
             mock_create.return_value = MagicMock(spec=LLMClient)
             client = create_client("deepseek", "deepseek-chat")
             assert isinstance(client, MagicMock)
@@ -35,29 +35,6 @@ class TestCreateClient:
     def test_create_client_unknown_provider_raises_value_error(self):
         with pytest.raises(ValueError, match="未知"):
             create_client("unknown", "model")
-
-
-# ── create_deepseek_client ──
-
-class TestCreateDeepseekClient:
-    def test_create_deepseek_client_no_api_key_raises_value_error(self, monkeypatch):
-        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
-            create_deepseek_client()
-
-    def test_create_deepseek_client_with_api_key(self, set_deepseek_env):
-        fake_openai = MagicMock()
-        fake_client = MagicMock()
-        fake_response = MagicMock()
-        fake_response.choices = [MagicMock()]
-        fake_response.choices[0].message.content = "test response"
-        fake_client.chat.completions.create.return_value = fake_response
-        fake_openai.OpenAI = MagicMock(return_value=fake_client)
-        with patch.dict("sys.modules", {"openai": fake_openai}):
-            client = create_deepseek_client("deepseek-chat")
-            assert isinstance(client, LLMClient)
-            result = client.generate("hello")
-            assert result == "test response"
 
 
 # ── create_ollama_client ──
@@ -85,7 +62,13 @@ class TestCreateOrchestrator:
         fake_client.chat.completions.create.return_value = fake_response
         fake_openai.OpenAI = MagicMock(return_value=fake_client)
         with patch.dict("sys.modules", {"openai": fake_openai}):
-            llm_client = create_deepseek_client("deepseek-chat")
+            llm_client = create_openai_compatible_client(
+                provider_name="deepseek",
+                model_name="deepseek-chat",
+                base_url="https://api.deepseek.com",
+                api_key="",
+                api_key_env="DEEPSEEK_API_KEY",
+            )
             orch, memory = create_orchestrator("deepseek-chat", llm_client)
             assert orch is not None
             assert memory is not None
@@ -101,7 +84,13 @@ class TestCreateOrchestrator:
         from agents.orchestrator import Orchestrator
         from memory.manager import MemoryManager
         with patch.dict("sys.modules", {"openai": fake_openai}):
-            llm_client = create_deepseek_client("deepseek-chat")
+            llm_client = create_openai_compatible_client(
+                provider_name="deepseek",
+                model_name="deepseek-chat",
+                base_url="https://api.deepseek.com",
+                api_key="",
+                api_key_env="DEEPSEEK_API_KEY",
+            )
             orch, memory = create_orchestrator("deepseek-chat", llm_client)
             assert isinstance(orch, Orchestrator)
             assert isinstance(memory, MemoryManager)
