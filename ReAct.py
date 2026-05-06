@@ -202,12 +202,23 @@ def main():
         default=None,
         help="要执行的任务（不指定则进入交互模式）"
     )
+    # 尝试加载 config 以获取可用 provider 列表
+    try:
+        _config = load_config()
+        _available_providers = list(_config["providers"].keys())
+        _default_provider = _config["provider"]
+        _default_model = _config.get("model", _default_provider)
+    except Exception:
+        _available_providers = ["deepseek", "ollama"]
+        _default_provider = "deepseek"
+        _default_model = "deepseek-chat"
+
     parser.add_argument(
         "-p", "--provider",
         type=str,
-        default="deepseek",
-        choices=["ollama", "deepseek"],
-        help="LLM 后端: ollama（本地）或 deepseek（API）"
+        default=None,
+        choices=_available_providers,
+        help=f"LLM 后端（可用: {', '.join(_available_providers)}）"
     )
     parser.add_argument(
         "-m", "--model",
@@ -259,9 +270,11 @@ def main():
     # 配置工作区目录
     set_workspace_dir(args.workspace)
 
-    # 根据 provider 自动选择默认模型
+    # 命令行参数覆盖 config
+    if args.provider is None:
+        args.provider = _default_provider
     if args.model is None:
-        args.model = "deepseek-chat" if args.provider == "deepseek" else "llama3:8b"
+        args.model = _default_model
 
     print(f"[ReAct] 后端: {args.provider}, 模型: {args.model}")
     client = create_client(provider=args.provider, model_name=args.model)
