@@ -4,3 +4,11 @@ __pycache__/
 *.pyc
 .workspace/
 docs/optimization-roadmap.md
+docs/code-review-agent-design.md
+*.docx
+
+# Test coverage
+.coverage
+coverage.xml
+htmlcov/
+

@@ -1,5 +1,3 @@
-from click import prompt
-
 from agents.base import BaseAgent
 from agents.message import Message
 from utils.llm_client import LLMClient
@@ -20,12 +18,15 @@ class CriticAgent(BaseAgent):
     def evaluate(self, task: str, result: str) -> tuple[bool, str]:
         prompt = CRITIC_SYSTEM_PROMPT.format(task=task,result=result)
         response = self.llm.generate(prompt)
-        decision = "PASS" if "PASS" in response.upper() else "FAIL"
-        if "Feedback: " in response:
+        passed = False
+        if "Decision:" in response:
+            decision_part = response.split("Decision:")[-1].split("\n")[0].strip().upper()
+            passed = decision_part.startswith("PASS")
+        if "Feedback:" in response:
             feedback = response.split("Feedback:")[-1].strip()
         else:
             feedback = response
-        return decision == "PASS", feedback
+        return passed, feedback
 
     def handle_message(self, msg: Message) -> Message:
         passed, feedback = self.evaluate(msg.payload["task"], msg.payload["result"])

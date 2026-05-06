@@ -6,7 +6,8 @@
 
 - **ReAct 循环**：Thought → Action → Observation 标准推理链路
 - **自我反思**：Actor 执行 + Reviewer 评审 + 失败自动修正
-- **多 Agent 编排**：Planner 规划 → Executor 执行 → Critic 评审，串行协作
+- **多 Agent 编排**：Planner 规划 → Executor 执行 → Critic 评审
+- **DAG 调度引擎**：基于依赖图的拓扑排序调度，支持并行执行和动态重规划
 - **统一消息通信**：`Message` 数据类，规范化 Agent 间通信（sender/receiver/payload）
 - **长期记忆**：工具经验积累、反思教训记录、关键词检索、自动压缩
 - **双后端**：DeepSeek API / Ollama 本地模型，一键切换
@@ -47,6 +48,9 @@ python ReAct.py -t "计算 (15+23)*2 的结果" -r
 # 启用多 Agent 编排模式
 python ReAct.py -t "搜索量子计算最新进展，写成报告并保存到文件" --orchestrate
 
+# 编排模式 + 并行执行
+python ReAct.py -t "创建3个文件并合并内容" --orchestrate --parallel
+
 # 交互模式
 python ReAct.py
 ```
@@ -62,9 +66,11 @@ python ReAct.py
 | `-m, --model` | 模型名称 | deepseek: `deepseek-chat` / ollama: `llama3:8b` |
 | `-r, --reflect` | 启用自我反思模式 | 关闭 |
 | `--orchestrate` | 启用多 Agent 编排模式（Planner + Executor + Critic） | 关闭 |
+| `--parallel` | 编排模式下允许并行执行无依赖的子任务 | 关闭 |
 | `--max-retries` | 反思/编排最大重试次数 | 2 |
-| `-w, --workspace` | 文件读写工具的工作区目录 | `./workspace` |
+| `--max-replans` | 编排模式下最大重规划次数 | 2 |
 | `--max-steps` | 单次任务最大步数 | 20 |
+| `-w, --workspace` | 文件读写工具的工作区目录 | `./workspace` |
 
 ### 交互模式命令
 
@@ -98,11 +104,12 @@ ReAct/
 ├── agents/
 │   ├── base.py               # Agent 基类：ReAct 循环 + 反思循环
 │   ├── message.py            # Message 数据类：统一 Agent 间通信
+│   ├── plan_graph.py         # PlanGraph + TaskNode：依赖图调度数据结构
 │   ├── reviewer.py           # Reviewer 评审 Agent（反思模式用）
 │   ├── planner.py            # Planner 规划 Agent（编排模式用）
 │   ├── executor.py           # Executor 执行 Agent（编排模式用）
 │   ├── critic.py             # Critic 评审 Agent（编排模式用）
-│   └── orchestrator.py       # Orchestrator 编排器：串行协调多 Agent
+│   └── orchestrator.py       # Orchestrator：DAG 调度引擎 + 并行 + 回溯
 ├── tools/
 │   ├── base.py               # Tool 抽象基类
 │   ├── registry.py           # @register_tool 装饰器注册表
@@ -119,9 +126,9 @@ ReAct/
 │   ├── store.py              # MemoryStore 抽象基类 + JSON 持久化
 │   ├── manager.py            # MemoryManager 写入/检索/压缩
 │   ├── memories.json         # 长期记忆数据文件
-│   ├── short_term.py         # 短期记忆（占位，逻辑在 BaseAgent 中）
-│   ├── mid_term.py           # 中期记忆（占位，会话摘要待实现）
-│   └── long_term.py          # 长期记忆（占位，逻辑在 store.py 中）
+│   ├── short_term.py         # 短期记忆（占位）
+│   ├── mid_term.py           # 中期记忆（占位）
+│   └── long_term.py          # 长期记忆（占位）
 ├── workspace/                # 文件操作安全沙箱
 ├── docs/                     # 阶段完成报告
 └── README.md
@@ -154,24 +161,37 @@ ReAct/
           └─────────────────────┘
 ```
 
-### 多 Agent 编排模式
+### 多 Agent 编排模式（DAG 调度）
 
 ```
-用户任务 ──▶ Planner 分解任务为子任务列表
+用户任务 ──▶ Planner 分解任务 → PlanGraph 构建依赖图
                     │
                     ▼
-          ┌─────────────────────────────────┐
-          │  Orchestrator 串行协调           │
-          │                                 │
-          │  对每个子任务:                    │
-          │    ├─ Executor 执行子任务         │
-          │    ├─ Critic 评审执行结果          │
-          │    ├─ ✅ PASS → 记录结果, 继续     │
-          │    └─ ❌ FAIL → 注入反馈 → 重试    │
-          │                                 │
-          │  汇总所有子任务结果 → 最终输出      │
-          └─────────────────────────────────┘
+          ┌──────────────────────────────────────────┐
+          │  Orchestrator DAG 调度循环                │
+          │                                          │
+          │  while not all_done:                     │
+          │    ready = get_ready_tasks()             │
+          │    (仅返回依赖全部满足的节点)              │
+          │                                          │
+          │    if parallel:                          │
+          │      ThreadPoolExecutor 并行执行 ready    │
+          │    else:                                 │
+          │      串行执行 ready                       │
+          │                                          │
+          │    每个节点:                              │
+          │      Executor 执行 → Critic 评审          │
+          │      ✅ PASS → mark_done, 解锁后继节点    │
+          │      ❌ FAIL → 重试 → 回溯 → replan       │
+          │                                          │
+          │    死锁检测: 无就绪 + 未完成 → 处理       │
+          └──────────────────────────────────────────┘
+                    │
+                    ▼
+              汇总结果输出
 ```
+
+编排模式的核心改进：不再按 Planner 返回的列表顺序串行执行，而是基于 `PlanGraph.get_ready_tasks()` 按依赖拓扑顺序调度——每轮只执行依赖已全部满足的节点，天然支持无依赖节点的并行执行。失败时自动尝试替代路径回溯，仍失败则触发 Planner 重规划。
 
 所有 Agent 间通信均通过 `Message` 数据类完成（type/sender/receiver/payload）。
 
@@ -202,4 +222,4 @@ class MyTool(Tool):
 | 阶段 2 | 自我反思（Reviewer、反思循环、双后端） | ✅ 完成 |
 | 阶段 3 | 长期记忆（JSON 持久化、检索、压缩） | ✅ 完成 |
 | 阶段 4 | 多模型协作（Message 通信、Planner/Executor/Critic/Orchestrator） | ✅ 完成 |
-| 阶段 5 | 规划能力增强（任务分解优化、进度跟踪、动态调整、并行执行） | 📋 计划中 |
+| 阶段 5 | 规划能力（DAG 调度、动态重规划、回溯、并行执行） | ✅ 完成 |

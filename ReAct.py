@@ -133,6 +133,17 @@ def main():
         help="启用多 Agent 编排模式（Planner + Executor + Critic 协作）"
     )
     parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="编排模式下允许并行执行无依赖的子任务"
+    )
+    parser.add_argument(
+        "--max-replans",
+        type=int,
+        default=2,
+        help="编排模式下的最大重规划次数（默认: 2）"
+    )
+    parser.add_argument(
         "-w", "--workspace",
         type=str,
         default="./workspace",
@@ -168,8 +179,13 @@ def main():
 def run_single_task(agent: BaseAgent, args, orchestrator=None):
     """执行单次任务。"""
     if orchestrator:
-        print("[ReAct] 多 Agent 编排模式已启用")
-        result = orchestrator.run_sequential(args.task, max_retries=args.max_retries)
+        print("[ReAct] 多 Agent 编排模式已启用 (Phase 5: DAG 调度)")
+        result = orchestrator.run_with_graph(
+            args.task,
+            max_retries=args.max_retries,
+            parallel=args.parallel,
+            max_replans=args.max_replans,
+        )
     elif args.reflect:
         print(f"[ReAct] 自我反思模式已启用，最大重试: {args.max_retries}")
         result = agent.run_with_reflection(args.task, max_retries=args.max_retries, max_steps=args.max_steps)
@@ -192,6 +208,8 @@ def run_interactive(agent: BaseAgent, args, llm_client: LLMClient, orchestrator=
         "agent": agent,
         "max_retries": args.max_retries,
         "max_steps": args.max_steps,
+        "parallel": args.parallel,
+        "max_replans": args.max_replans,
     }
 
     def mode_label():
@@ -224,7 +242,12 @@ def run_interactive(agent: BaseAgent, args, llm_client: LLMClient, orchestrator=
             continue
 
         if state["orchestrate_on"]:
-            result = state["orchestrator"].run_sequential(task, max_retries=state["max_retries"])
+            result = state["orchestrator"].run_with_graph(
+                task,
+                max_retries=state["max_retries"],
+                parallel=state.get("parallel", False),
+                max_replans=state.get("max_replans", 2),
+            )
         elif state["reflect_on"]:
             print("[ReAct] 反思模式执行中...")
             result = state["agent"].run_with_reflection(task, max_retries=state["max_retries"], max_steps=state["max_steps"])
