@@ -173,6 +173,35 @@ class TestHandleCommand:
             handle_command("/orch on", state)
             assert state["reflect_on"] is False
 
+    def test_handle_parallel_toggle(self, state):
+        handle_command("/parallel", state)
+        assert state["parallel"] is True
+        handle_command("/parallel", state)
+        assert state["parallel"] is False
+
+    def test_handle_parallel_on_off(self, state):
+        handle_command("/parallel on", state)
+        assert state["parallel"] is True
+        handle_command("/parallel off", state)
+        assert state["parallel"] is False
+
+    def test_handle_parallel_short_form(self, state):
+        handle_command("/pl on", state)
+        assert state["parallel"] is True
+
+    def test_handle_replans_set(self, state):
+        handle_command("/replans 5", state)
+        assert state["max_replans"] == 5
+
+    def test_handle_replans_show(self, state):
+        state["max_replans"] = 3
+        handle_command("/replans", state)
+        assert state["max_replans"] == 3
+
+    def test_handle_replans_short_form(self, state):
+        handle_command("/rp 4", state)
+        assert state["max_replans"] == 4
+
     def test_handle_help(self, state):
         handle_command("/help", state)
 

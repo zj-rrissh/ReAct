@@ -295,6 +295,22 @@ def handle_command(cmd: str, state: dict):
             state["reflect_on"] = False
         print(f"[ReAct] 编排模式已: {'🟢 开启' if state['orchestrate_on'] else '⚫ 关闭'}")
 
+    elif cmd_name in ("/parallel", "/pl"):
+        if len(parts) > 1 and parts[1] in ("on", "1", "true", "yes"):
+            state["parallel"] = True
+        elif len(parts) > 1 and parts[1] in ("off", "0", "false", "no"):
+            state["parallel"] = False
+        else:
+            state["parallel"] = not state["parallel"]
+        print(f"[ReAct] 并行执行已: {'🟢 开启' if state['parallel'] else '⚫ 关闭'}")
+
+    elif cmd_name in ("/replans", "/rp"):
+        if len(parts) > 1 and parts[1].isdigit():
+            state["max_replans"] = int(parts[1])
+            print(f"[ReAct] 最大重规划次数已设为: {state['max_replans']}")
+        else:
+            print(f"[ReAct] 当前最大重规划次数: {state['max_replans']}")
+
     elif cmd_name in ("/help", "/h", "/?"):
         print("""
 可用命令:
@@ -302,6 +318,8 @@ def handle_command(cmd: str, state: dict):
   /orch on/off              直接设置编排模式
   /reflect, /r              切换反思模式（开/关）
   /reflect on/off           直接设置反思模式
+  /parallel, /pl            切换并行执行（开/关/on/off）
+  /replans, /rp [N]         查看/设置最大重规划次数
   /help, /h                 显示此帮助
   exit, quit                退出程序
         """.strip())
