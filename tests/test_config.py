@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from ReAct import load_config
+from ReAct import load_config, create_openai_compatible_client
+from utils.llm_client import LLMClient
 
 
 class TestLoadConfig:
@@ -112,9 +113,6 @@ class TestLoadConfig:
         with pytest.raises(ValueError, match="unknown"):
             load_config(str(config_path))
 
-
-from ReAct import create_openai_compatible_client, create_ollama_client
-from utils.llm_client import LLMClient
 
 
 class TestCreateOpenAICompatibleClient:
