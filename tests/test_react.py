@@ -1,5 +1,6 @@
 """ReAct.py CLI 入口集成测试 (16 用例)。"""
 
+import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
@@ -20,21 +21,66 @@ from utils.llm_client import LLMClient
 # ── create_client ──
 
 class TestCreateClient:
-    def test_create_client_deepseek_returns_llm_client(self, set_deepseek_env):
-        with patch("ReAct.create_openai_compatible_client") as mock_create:
-            mock_create.return_value = MagicMock(spec=LLMClient)
-            client = create_client("deepseek", "deepseek-chat")
-            assert isinstance(client, MagicMock)
+    def test_create_client_from_config_deepseek(self, tmp_path, monkeypatch):
+        """从 config 读取 deepseek provider 创建客户端。"""
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-key")
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({
+            "provider": "deepseek",
+            "model": "deepseek-chat",
+            "providers": {
+                "deepseek": {
+                    "type": "openai_compatible",
+                    "base_url": "https://api.deepseek.com",
+                    "api_key": "",
+                    "api_key_env": "DEEPSEEK_API_KEY"
+                }
+            }
+        }))
+        fake_openai = MagicMock()
+        fake_client = MagicMock()
+        fake_response = MagicMock()
+        fake_response.choices = [MagicMock()]
+        fake_response.choices[0].message.content = "test"
+        fake_client.chat.completions.create.return_value = fake_response
+        fake_openai.OpenAI = MagicMock(return_value=fake_client)
+        with patch.dict("sys.modules", {"openai": fake_openai}):
+            client = create_client(config_path=str(config_path))
+            assert isinstance(client, LLMClient)
 
-    def test_create_client_ollama_returns_llm_client(self):
-        with patch("ReAct.create_ollama_client") as mock_create:
-            mock_create.return_value = MagicMock(spec=LLMClient)
-            client = create_client("ollama", "llama3:8b")
-            assert isinstance(client, MagicMock)
+    def test_create_client_from_config_ollama(self, tmp_path):
+        """从 config 读取 ollama provider 创建客户端。"""
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({
+            "provider": "ollama",
+            "model": "llama3:8b",
+            "providers": {
+                "ollama": {
+                    "type": "ollama",
+                    "model": "llama3:8b"
+                }
+            }
+        }))
+        fake_ollama = MagicMock()
+        fake_ollama.chat.return_value = {"message": {"content": "reply"}}
+        with patch.dict("sys.modules", {"ollama": fake_ollama}):
+            client = create_client(config_path=str(config_path))
+            assert isinstance(client, LLMClient)
 
-    def test_create_client_unknown_provider_raises_value_error(self):
-        with pytest.raises(ValueError, match="未知"):
-            create_client("unknown", "model")
+    def test_create_client_unknown_provider_type_raises_value_error(self, tmp_path):
+        """config 中 provider type 未知时报错。"""
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({
+            "provider": "bad",
+            "model": "bad-model",
+            "providers": {
+                "bad": {
+                    "type": "unknown_type"
+                }
+            }
+        }))
+        with pytest.raises(ValueError, match="type"):
+            create_client(config_path=str(config_path))
 
 
 # ── create_ollama_client ──

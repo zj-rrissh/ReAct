@@ -140,19 +140,46 @@ def create_ollama_client(model_name: str = "llama3:8b") -> LLMClient:
     return LLMClient(model_name=model_name, adapter=adapter)
 
 
-def create_client(provider: str, model_name: str) -> LLMClient:
-    if provider == "deepseek":
+def create_client(config_path: str = DEFAULT_CONFIG_PATH, provider: str = None, model_name: str = None) -> LLMClient:
+    """根据配置创建 LLM 客户端。
+
+    Args:
+        config_path: config.json 路径
+        provider: 覆盖配置中的 provider（命令行参数）
+        model_name: 覆盖配置中的 model（命令行参数）
+
+    Returns:
+        LLMClient 实例
+    """
+    config = load_config(config_path)
+
+    # 命令行参数覆盖 config
+    provider = provider or config["provider"]
+    model_name = model_name or config.get("model", provider)
+
+    if provider not in config["providers"]:
+        available = ", ".join(config["providers"].keys())
+        raise ValueError(f"未知的 provider: {provider}，可用: {available}")
+
+    provider_config = config["providers"][provider]
+    provider_type = provider_config.get("type", "")
+
+    if provider_type == "openai_compatible":
         return create_openai_compatible_client(
-            provider_name="deepseek",
+            provider_name=provider,
             model_name=model_name,
-            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-            api_key="",
-            api_key_env="DEEPSEEK_API_KEY",
+            base_url=provider_config.get("base_url", ""),
+            api_key=provider_config.get("api_key", ""),
+            api_key_env=provider_config.get("api_key_env", ""),
         )
-    elif provider == "ollama":
-        return create_ollama_client(model_name)
+    elif provider_type == "ollama":
+        ollama_model = model_name or provider_config.get("model", "llama3:8b")
+        return create_ollama_client(ollama_model)
     else:
-        raise ValueError(f"未知的 provider: {provider}，可选: ollama, deepseek")
+        raise ValueError(
+            f"未知的 provider type: {provider_type}，"
+            f"provider '{provider}' 需在 config.json 中设置 type 字段（openai_compatible 或 ollama）"
+        )
 
 
 def create_orchestrator(model_name: str, llm_client: LLMClient):
@@ -237,7 +264,7 @@ def main():
         args.model = "deepseek-chat" if args.provider == "deepseek" else "llama3:8b"
 
     print(f"[ReAct] 后端: {args.provider}, 模型: {args.model}")
-    client = create_client(args.provider, args.model)
+    client = create_client(provider=args.provider, model_name=args.model)
 
     if args.orchestrate:
         orchestrator, memory_mgr = create_orchestrator(args.model, client)
