@@ -59,15 +59,15 @@ def load_config(config_path: str = DEFAULT_CONFIG_PATH) -> dict:
         raise ValueError(f"config.json 格式错误，无法解析 JSON: {e}")
 
     if "provider" not in config:
-        raise ValueError("config.json 缺少必需字段 'provider'")
+        raise ValueError(f"缺少必需字段 'provider'（文件: {config_path}）")
     if "providers" not in config:
-        raise ValueError("config.json 缺少必需字段 'providers'")
+        raise ValueError(f"缺少必需字段 'providers'（文件: {config_path}）")
 
     provider = config["provider"]
     if provider not in config["providers"]:
         available = ", ".join(config["providers"].keys())
         raise ValueError(
-            f"未知的 provider: {provider}，config.json 中可用的 provider: {available}"
+            f"未知的 provider: {provider}，可用的 provider: {available}（文件: {config_path}）"
         )
 
     if "model" not in config:

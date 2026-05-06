@@ -82,6 +82,23 @@ class TestLoadConfig:
         with pytest.raises(ValueError, match="providers"):
             load_config(str(config_path))
 
+    def test_missing_model_defaults_to_provider(self, tmp_path):
+        """config.json 缺少 model 字段时自动使用 provider 名称。"""
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({
+            "provider": "my_llm",
+            "providers": {
+                "my_llm": {
+                    "type": "openai_compatible",
+                    "base_url": "https://api.example.com",
+                    "api_key": "sk-test",
+                    "api_key_env": "MY_KEY"
+                }
+            }
+        }))
+        config = load_config(str(config_path))
+        assert config["model"] == "my_llm"
+
     def test_provider_not_in_providers_raises_value_error(self, tmp_path):
         """provider 不在 providers 列表中时抛出 ValueError。"""
         config_path = tmp_path / "config.json"
