@@ -5,6 +5,7 @@
 """
 
 import argparse
+import json
 import os
 
 from dotenv import load_dotenv
@@ -28,6 +29,51 @@ import tools.web_search      # noqa: F401
 import tools.wikipedia       # noqa: F401
 import tools.file_reader     # noqa: F401
 import tools.file_writer     # noqa: F401
+
+
+DEFAULT_CONFIG_PATH = "config.json"
+
+
+def load_config(config_path: str = DEFAULT_CONFIG_PATH) -> dict:
+    """加载 config.json 配置文件。
+
+    Returns:
+        dict: {"provider": str, "model": str, "providers": dict}
+
+    Raises:
+        FileNotFoundError: config.json 不存在
+        ValueError: 配置格式错误或 provider 无效
+    """
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(
+            f"未找到配置文件: {config_path}\n"
+            f"请从 config.json.example 复制一份:\n"
+            f"  cp config.json.example config.json\n"
+            f"然后编辑 config.json 填入你的 API 密钥。"
+        )
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"config.json 格式错误，无法解析 JSON: {e}")
+
+    if "provider" not in config:
+        raise ValueError("config.json 缺少必需字段 'provider'")
+    if "providers" not in config:
+        raise ValueError("config.json 缺少必需字段 'providers'")
+
+    provider = config["provider"]
+    if provider not in config["providers"]:
+        available = ", ".join(config["providers"].keys())
+        raise ValueError(
+            f"未知的 provider: {provider}，config.json 中可用的 provider: {available}"
+        )
+
+    if "model" not in config:
+        config["model"] = provider
+
+    return config
 
 
 def create_deepseek_client(model_name: str = "deepseek-chat") -> LLMClient:
